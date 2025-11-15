@@ -1,0 +1,12 @@
+# Vehicle Parking App - Backend Dependencies
+# Install with: pip install -r requirements.txt
+
+Flask==2.3.3
+flask-sqlalchemy==3.0.5
+flask-cors==4.0.0
+flask-jwt-extended==4.5.3
+flask-mail==0.9.1
+redis==5.0.1
+celery==5.3.4
+Werkzeug==2.3.7
+

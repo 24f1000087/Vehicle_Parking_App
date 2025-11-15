@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Parking App</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --surface: #ffffff;
+            --brand-dark: #1f2a37;
+            --brand-accent: #1aa6b7;
+            --brand-soft: #e6f2ff;
+            --status-available: #16a34a;
+            --status-occupied: #dc2626;
+        }
+        body {
+            background: #dfeafe;
+            font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+            min-height: 100vh;
+            color: #1f2937;
+        }
+        .app-header {
+            background: var(--brand-dark);
+            color: #fff;
+            padding: 0.85rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+        .brand-title {
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .admin-shell {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding-bottom: 3rem;
+        }
+        .admin-card, .user-card {
+            background: var(--surface);
+            border-radius: 18px;
+            box-shadow: 0 25px 55px rgba(15,23,42,0.12);
+            padding: 2rem;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+        }
+        .summary-chip {
+            background: var(--brand-soft);
+            border-radius: 16px;
+            padding: 1rem 1.25rem;
+        }
+        .lot-card {
+            background: #f9fbff;
+            border-radius: 16px;
+            padding: 1.5rem;
+            border: 1px solid #edf2ff;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.3);
+        }
+        .lot-card + .lot-card {
+            margin-top: 1.25rem;
+        }
+        .lot-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .spot-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+            gap: 0.6rem;
+        }
+        .spot-chip {
+            border: none;
+            border-radius: 10px;
+            padding: 0.65rem 0.4rem;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.15rem;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.2s ease;
+        }
+        .spot-chip span {
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+        }
+        .spot-chip small {
+            font-size: 0.65rem;
+            color: rgba(255,255,255,0.9);
+            text-transform: uppercase;
+        }
+        .spot-chip.spot-available {
+            background: var(--status-available);
+            box-shadow: 0 10px 25px rgba(22,163,74,0.25);
+        }
+        .spot-chip.spot-occupied {
+            background: var(--status-occupied);
+            box-shadow: 0 10px 25px rgba(220,38,38,0.25);
+        }
+        .spot-chip:disabled {
+            cursor: default;
+            opacity: 0.85;
+        }
+        .dashboard-tabs .nav-link {
+            border-radius: 999px;
+            margin-right: 0.5rem;
+            padding: 0.45rem 1.25rem;
+            font-weight: 600;
+            color: #475569;
+        }
+        .dashboard-tabs .nav-link.active {
+            background: var(--brand-accent);
+            color: #fff;
+            box-shadow: 0 10px 25px rgba(26,166,183,0.4);
+        }
+        .chart-card canvas {
+            min-height: 320px;
+        }
+        .notification-toast {
+            position: fixed;
+            top: 1rem;
+            right: 1.5rem;
+            z-index: 1055;
+            min-width: 280px;
+            box-shadow: 0 20px 45px rgba(15,23,42,0.15);
+            border-left: 4px solid;
+        }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+    
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Axios -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- App Script (includes all components) -->
+    <script src="./src/app.js"></script>
+</body>
+</html>
