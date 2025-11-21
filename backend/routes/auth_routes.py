@@ -17,18 +17,23 @@ def register():
         data = request.get_json()
         
         # Validate input
-        if not data or not data.get('username') or not data.get('password'):
-            return jsonify({'error': 'Username and password are required'}), 400
+        if not data or not data.get('username') or not data.get('password') or not data.get('email'):
+            return jsonify({'error': 'Username, email, and password are required'}), 400
         
         username = data['username'].strip()
+        email = data['email'].strip().lower()
         password = data['password']
         
+        import re
+        if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            return jsonify({'error': 'Please provide a valid email address'}), 400
+        
         # Check if user already exists
-        if User.query.filter_by(username=username).first():
+        if User.query.filter((User.username == username) | (User.email == email)).first():
             return jsonify({'error': 'Username already exists'}), 400
         
         # Create new user (role defaults to 'user')
-        new_user = User(username=username, role='user')
+        new_user = User(username=username, email=email, role='user')
         new_user.set_password(password)
         
         db.session.add(new_user)
@@ -62,7 +67,7 @@ def login():
             return jsonify({'error': 'Invalid username or password'}), 401
         
         # Create JWT token
-        access_token = create_access_token(identity=user.id, additional_claims={'role': user.role})
+        access_token = create_access_token(identity=str(user.id), additional_claims={'role': user.role})
         
         return jsonify({
             'message': 'Login successful',
@@ -85,14 +90,39 @@ def logout():
 def get_current_user():
     """Get current logged-in user information"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
-        return jsonify({'user': user.to_dict()}), 200
-        
+        return jsonify({'user': user.to_dict(include_private=True)}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@auth_bp.route('/me', methods=['PUT'])
+@jwt_required()
+def update_current_user():
+    """Update current user profile"""
+    try:
+        user_id = int(get_jwt_identity())
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        data = request.get_json() or {}
+        if 'username' in data and data['username']:
+            user.username = data['username'].strip()
+        if 'email' in data and data['email']:
+            user.email = data['email'].strip().lower()
+        if 'pincode' in data:
+            pin = data['pincode'].strip()
+            if pin and (not pin.isdigit() or len(pin) != 6):
+                return jsonify({'error': 'Pin code must be 6 digits'}), 400
+            user.pincode = pin or None
+
+        db.session.commit()
+        return jsonify({'message': 'Profile updated', 'user': user.to_dict(include_private=True)}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500

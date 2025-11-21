@@ -1,10 +1,11 @@
 """
-Admin Routes
+Admin Routes - FIXED
 Handles admin-only operations: CRUD for parking lots, view users, charts, etc.
 """
 
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt
+from sqlalchemy import or_
 from models.user_model import User
 from models.parkinglot_model import ParkingLot
 from models.parkingspot_model import ParkingSpot
@@ -17,7 +18,6 @@ admin_bp = Blueprint('admin', __name__)
 
 def require_admin():
     """Helper function to check if user is admin"""
-    from flask_jwt_extended import get_jwt
     claims = get_jwt()
     if claims.get('role') != 'admin':
         return False
@@ -32,19 +32,12 @@ def get_all_parking_lots():
     
     try:
         lots = ParkingLot.query.all()
-        payload = []
-        for lot in lots:
-            lot_data = lot.to_dict()
-            lot_data['spots'] = [
-                spot.to_dict() for spot in sorted(
-                    lot.spots, key=lambda s: s.spot_number
-                )
-            ]
-            payload.append(lot_data)
+        payload = [lot.to_dict() for lot in lots]
         return jsonify({
             'parking_lots': payload
         }), 200
     except Exception as e:
+        print(f"Error in get_all_parking_lots: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @admin_bp.route('/parking-lots', methods=['POST'])
@@ -55,17 +48,59 @@ def create_parking_lot():
         return jsonify({'error': 'Admin access required'}), 403
     
     try:
+        # Get JSON data and handle empty/invalid requests
+        if not request.is_json:
+            return jsonify({'error': 'Content-Type must be application/json'}), 400
+            
         data = request.get_json()
         
-        if not data or not data.get('name') or not data.get('address') or not data.get('price') or not data.get('number_of_spots'):
-            return jsonify({'error': 'Name, address, price, and number_of_spots are required'}), 400
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Validate required fields
+        required_fields = ['code', 'name', 'address', 'pincode', 'price', 'number_of_spots']
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        
+        if missing_fields:
+            return jsonify({'error': f'Missing required fields: {", ".join(missing_fields)}'}), 400
+        
+        lot_code = data['code'].strip().upper()
+        lot_pincode = data['pincode'].strip()
+        
+        if not lot_code.isalnum():
+            return jsonify({'error': 'Lot ID must be alphanumeric'}), 400
+        
+        if not lot_pincode.isdigit() or len(lot_pincode) != 6:
+            return jsonify({'error': 'Pin code must be a 6-digit number'}), 400
+        
+        # Validate data types
+        try:
+            price = float(data['price'])
+            number_of_spots = int(data['number_of_spots'])
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Price must be a number and number_of_spots must be an integer'}), 400
+        
+        if price < 0:
+            return jsonify({'error': 'Price cannot be negative'}), 400
+        
+        if number_of_spots < 1:
+            return jsonify({'error': 'Number of spots must be at least 1'}), 400
+        
+        # Check for duplicate codes/names to avoid database constraint errors
+        existing = ParkingLot.query.filter(
+            or_(ParkingLot.name == data['name'].strip(), ParkingLot.code == lot_code)
+        ).first()
+        if existing:
+            return jsonify({'error': 'A parking lot with this name or ID already exists. Please choose a different value.'}), 400
         
         # Create parking lot
         new_lot = ParkingLot(
-            name=data['name'],
-            address=data['address'],
-            price=float(data['price']),
-            number_of_spots=int(data['number_of_spots'])
+            code=lot_code,
+            name=data['name'].strip(),
+            address=data['address'].strip(),
+            pincode=lot_pincode,
+            price=price,
+            number_of_spots=number_of_spots
         )
         
         db.session.add(new_lot)
@@ -73,9 +108,12 @@ def create_parking_lot():
         
         # Create parking spots
         for i in range(1, new_lot.number_of_spots + 1):
+            row = chr(65 + (i - 1) // 10)
+            col = ((i - 1) % 10) + 1
+            public_label = f"{row}{col}"
             spot = ParkingSpot(
                 lot_id=new_lot.id,
-                spot_number=f"{chr(65 + (i-1) // 10)}{i % 10 if i % 10 != 0 else 10}",  # A1, A2, ..., B1, etc.
+                spot_number=f"{new_lot.code}-{public_label}",
                 status='A'
             )
             db.session.add(spot)
@@ -92,7 +130,10 @@ def create_parking_lot():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in create_parking_lot: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to create parking lot: {str(e)}'}), 500
 
 @admin_bp.route('/parking-lots/<int:lot_id>', methods=['PUT'])
 @jwt_required()
@@ -106,14 +147,32 @@ def update_parking_lot(lot_id):
         if not lot:
             return jsonify({'error': 'Parking lot not found'}), 404
         
+        if not request.is_json:
+            return jsonify({'error': 'Content-Type must be application/json'}), 400
+            
         data = request.get_json()
         
-        if data.get('name'):
-            lot.name = data['name']
-        if data.get('address'):
-            lot.address = data['address']
-        if data.get('price'):
-            lot.price = float(data['price'])
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Update fields if provided
+        if 'name' in data and data['name']:
+            lot.name = data['name'].strip()
+        if 'address' in data and data['address']:
+            lot.address = data['address'].strip()
+        if 'pincode' in data and data['pincode']:
+            pin = data['pincode'].strip()
+            if not pin.isdigit() or len(pin) != 6:
+                return jsonify({'error': 'Pin code must be a 6-digit number'}), 400
+            lot.pincode = pin
+        if 'price' in data:
+            try:
+                price = float(data['price'])
+                if price < 0:
+                    return jsonify({'error': 'Price cannot be negative'}), 400
+                lot.price = price
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Price must be a valid number'}), 400
         
         db.session.commit()
         
@@ -127,7 +186,10 @@ def update_parking_lot(lot_id):
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in update_parking_lot: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to update parking lot: {str(e)}'}), 500
 
 @admin_bp.route('/parking-lots/<int:lot_id>', methods=['DELETE'])
 @jwt_required()
@@ -154,7 +216,8 @@ def delete_parking_lot(lot_id):
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in delete_parking_lot: {str(e)}")
+        return jsonify({'error': f'Failed to delete parking lot: {str(e)}'}), 500
 
 @admin_bp.route('/users', methods=['GET'])
 @jwt_required()
@@ -164,11 +227,12 @@ def get_all_users():
         return jsonify({'error': 'Admin access required'}), 403
     
     try:
-        users = User.query.all()
+        users = User.query.filter(User.role != 'admin').all()
         return jsonify({
             'users': [user.to_dict() for user in users]
         }), 200
     except Exception as e:
+        print(f"Error in get_all_users: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @admin_bp.route('/spots/<int:lot_id>', methods=['GET'])
@@ -184,6 +248,7 @@ def get_spots_by_lot(lot_id):
             'spots': [spot.to_dict() for spot in spots]
         }), 200
     except Exception as e:
+        print(f"Error in get_spots_by_lot: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @admin_bp.route('/spots/<int:spot_id>/details', methods=['GET'])
@@ -217,6 +282,45 @@ def get_spot_details(spot_id):
 
         return jsonify(response), 200
     except Exception as e:
+        print(f"Error in get_spot_details: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/parking-lots/<int:lot_id>/spots/<int:spot_id>', methods=['DELETE'])
+@jwt_required()
+def delete_spot(lot_id, spot_id):
+    """Delete a specific spot if it is not occupied"""
+    if not require_admin():
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        spot = ParkingSpot.query.filter_by(id=spot_id, lot_id=lot_id).first()
+        if not spot:
+            return jsonify({'error': 'Parking spot not found'}), 404
+
+        if spot.status != 'A':
+            return jsonify({'error': 'Cannot delete an occupied spot'}), 400
+
+        active_reservation = Reservation.query.filter_by(
+            spot_id=spot_id,
+            status='active'
+        ).first()
+
+        if active_reservation:
+            return jsonify({'error': 'Cannot delete a spot with an active reservation'}), 400
+
+        lot = ParkingLot.query.get(lot_id)
+        db.session.delete(spot)
+        if lot and lot.number_of_spots > 0:
+            lot.number_of_spots = max(0, lot.number_of_spots - 1)
+
+        db.session.commit()
+        if lot:
+            cache_lot_status(lot.id, lot.to_dict())
+
+        return jsonify({'message': 'Parking spot deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error in delete_spot: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @admin_bp.route('/summary', methods=['GET'])
@@ -260,6 +364,7 @@ def get_summary():
         }), 200
         
     except Exception as e:
+        print(f"Error in get_summary: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @admin_bp.route('/charts', methods=['GET'])
@@ -335,5 +440,5 @@ def get_chart_data():
         }), 200
         
     except Exception as e:
+        print(f"Error in get_chart_data: {str(e)}")
         return jsonify({'error': str(e)}), 500
-

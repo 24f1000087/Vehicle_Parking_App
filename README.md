@@ -243,6 +243,12 @@ Vehicle_parking_app_24f1000087/
 
    **Note:** The frontend uses Vue 3 via CDN (no build step required). All components are defined in `src/app.js` as JavaScript objects for CDN compatibility.
 
+---
+
+Any console errors
+What you see when opening http://localhost:5000/api/health
+What the test page shows at http://localhost:8080/test.html
+
 ## 🔐 Default Credentials
 
 - **Admin:**

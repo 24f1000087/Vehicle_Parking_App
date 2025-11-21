@@ -3,39 +3,55 @@ Celery Background Tasks
 Handles async tasks: daily reminders, monthly reports, CSV export
 """
 
-from app import celery
-from models.user_model import User
-from models.reservation_model import Reservation
-from utils.mailer import send_daily_reminder_email, send_monthly_report_email
 from datetime import datetime, timedelta
 import csv
 import io
 import os
 
+from sqlalchemy import func
+
+from app import celery
+from extensions import db
+from models.user_model import User
+from models.reservation_model import Reservation
+from models.parkinglot_model import ParkingLot
+from utils.mailer import send_daily_reminder_email, send_monthly_report_email
+
 @celery.task(name='utils.tasks.send_daily_reminders')
 def send_daily_reminders():
     """Send daily reminder emails to inactive users"""
     try:
-        # Get users who haven't made a reservation in the last 7 days
         seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        new_lot_threshold = datetime.utcnow() - timedelta(days=1)
+        new_lots = ParkingLot.query.filter(
+            ParkingLot.created_at >= new_lot_threshold
+        ).all()
+        new_lot_names = [lot.name for lot in new_lots]
         
         users = User.query.filter_by(role='user').all()
         sent_count = 0
         
         for user in users:
             # Check if user has recent reservations
-            recent_reservation = Reservation.query.filter(
-                Reservation.user_id == user.id,
-                Reservation.created_at >= seven_days_ago
-            ).first()
-            
-            # If no recent reservation, send reminder
-            if not recent_reservation:
-                # Note: In a real app, you'd store user email in the User model
-                # For now, we'll use a placeholder
-                user_email = f"{user.username}@example.com"  # Placeholder
-                if send_daily_reminder_email(user_email, user.username):
-                    sent_count += 1
+            last_reservation = Reservation.query.filter(
+                Reservation.user_id == user.id
+            ).order_by(Reservation.created_at.desc()).first()
+            inactive = (
+                not last_reservation
+                or last_reservation.created_at < seven_days_ago
+            )
+
+            if not inactive and not new_lot_names:
+                continue
+
+            days_since = None
+            if last_reservation:
+                days_since = (datetime.utcnow() - last_reservation.created_at).days
+
+            if user.email and send_daily_reminder_email(
+                user.email, user.username, new_lot_names, days_since
+            ):
+                sent_count += 1
         
         return f"Sent {sent_count} daily reminder emails"
     except Exception as e:
@@ -64,18 +80,33 @@ def send_monthly_reports():
             
             # Calculate report data
             total_reservations = len(reservations)
-            active_reservations = len([r for r in reservations if r.status == 'active'])
+            completed_reservations = len([r for r in reservations if r.status == 'completed'])
+            total_minutes = sum([r.duration_minutes for r in reservations])
             total_spent = sum([r.cost for r in reservations if r.cost]) or 0
+            total_hours = round(total_minutes / 60, 2) if total_minutes else 0
+
+            most_used = (
+                db.session.query(ParkingLot.name, func.count(Reservation.id))
+                .join(ParkingLot, ParkingLot.id == Reservation.lot_id)
+                .filter(
+                    Reservation.user_id == user.id,
+                    Reservation.created_at >= first_day_last_month,
+                    Reservation.created_at <= last_day_last_month,
+                )
+                .group_by(ParkingLot.name)
+                .order_by(func.count(Reservation.id).desc())
+                .first()
+            )
             
             report_data = {
                 'total_reservations': total_reservations,
-                'active_reservations': active_reservations,
-                'total_spent': total_spent
+                'completed_reservations': completed_reservations,
+                'total_spent': round(total_spent, 2),
+                'total_hours': total_hours,
+                'most_used_lot': most_used[0] if most_used else 'N/A'
             }
             
-            # Note: In a real app, you'd store user email in the User model
-            user_email = f"{user.username}@example.com"  # Placeholder
-            if send_monthly_report_email(user_email, user.username, report_data):
+            if user.email and send_monthly_report_email(user.email, user.username, report_data):
                 sent_count += 1
         
         return f"Sent {sent_count} monthly report emails"

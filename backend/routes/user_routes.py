@@ -15,6 +15,8 @@ from extensions import db
 from datetime import datetime, timedelta
 import csv
 import io
+import re
+from pytz import timezone, utc
 
 user_bp = Blueprint('user', __name__)
 
@@ -47,13 +49,17 @@ def get_available_parking_lots():
 def book_spot():
     """Book an available parking spot (auto-allocates first available)"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         data = request.get_json()
         
-        if not data or not data.get('lot_id'):
-            return jsonify({'error': 'lot_id is required'}), 400
+        if not data or not data.get('lot_id') or not data.get('vehicle_number'):
+            return jsonify({'error': 'lot_id and vehicle_number are required'}), 400
         
         lot_id = int(data['lot_id'])
+        vehicle_number = data.get('vehicle_number', '').upper().replace(" ", "")
+        
+        if not re.match(r'^[A-Z]{2}\d{2}[A-Z]{1,2}\d{4}$', vehicle_number):
+            return jsonify({'error': 'Invalid vehicle number. Use format like KA01AB1234'}), 400
         lot = ParkingLot.query.get(lot_id)
         
         if not lot:
@@ -80,9 +86,11 @@ def book_spot():
         # Create reservation
         reservation = Reservation(
             spot_id=available_spot.id,
+            lot_id=lot_id,
             user_id=user_id,
             start_time=datetime.utcnow(),
-            status='active'
+            status='active',
+            vehicle_number=vehicle_number
         )
         
         # Update spot status
@@ -92,6 +100,7 @@ def book_spot():
         db.session.commit()
         
         # Update cache
+        db.session.refresh(lot)
         cache_lot_status(lot_id, lot.to_dict())
         
         return jsonify({
@@ -108,7 +117,7 @@ def book_spot():
 def vacate_spot():
     """Vacate current parking spot and calculate cost"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         
         # Find active reservation
         reservation = Reservation.query.filter_by(
@@ -139,6 +148,7 @@ def vacate_spot():
         db.session.commit()
         
         # Update cache
+        db.session.refresh(lot)
         cache_lot_status(lot.id, lot.to_dict())
         
         return jsonify({
@@ -155,7 +165,7 @@ def vacate_spot():
 def get_my_reservations():
     """Get all reservations for current user"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         
         reservations = Reservation.query.filter_by(user_id=user_id).order_by(
             Reservation.created_at.desc()
@@ -173,7 +183,7 @@ def get_my_reservations():
 def get_active_reservation():
     """Get active reservation for current user"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         
         reservation = Reservation.query.filter_by(
             user_id=user_id,
@@ -198,7 +208,7 @@ def export_csv():
         # Lazy import to avoid circular dependency
         from utils.tasks import export_reservations_csv
         
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if not user:
@@ -220,7 +230,7 @@ def export_csv():
 def export_csv_sync():
     """Export user's reservations as CSV synchronously (immediate download)"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
         if not user:
@@ -247,17 +257,29 @@ def export_csv_sync():
             'Created At'
         ])
         
+        ist = timezone('Asia/Kolkata')
+
+        def to_ist(dt):
+            if not dt:
+                return None
+            if dt.tzinfo is None:
+                dt = utc.localize(dt)
+            return dt.astimezone(ist)
+
         # Write data
         for res in reservations:
+            start = to_ist(res.start_time)
+            end = to_ist(res.end_time)
+            created = to_ist(res.created_at)
             writer.writerow([
                 res.id,
                 res.parking_spot.spot_number if res.parking_spot else 'N/A',
                 res.parking_spot.parking_lot.name if res.parking_spot and res.parking_spot.parking_lot else 'N/A',
-                res.start_time.isoformat() if res.start_time else 'N/A',
-                res.end_time.isoformat() if res.end_time else 'N/A',
+                start.strftime('%d-%m-%Y %H:%M:%S') if start else 'N/A',
+                end.strftime('%d-%m-%Y %H:%M:%S') if end else 'N/A',
                 res.cost or 'N/A',
                 res.status,
-                res.created_at.isoformat() if res.created_at else 'N/A'
+                created.strftime('%d-%m-%Y %H:%M:%S') if created else 'N/A'
             ])
         
         # Create response
@@ -278,7 +300,7 @@ def export_csv_sync():
 def get_user_summary():
     """Get summary metrics for the current user"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
 
         total_reservations = Reservation.query.filter_by(user_id=user_id).count()
         completed_reservations = Reservation.query.filter_by(
@@ -314,7 +336,7 @@ def get_user_summary():
 def get_user_chart_data():
     """Get chart data for the current user"""
     try:
-        user_id = get_jwt_identity()
+        user_id = int(get_jwt_identity())
 
         # Daily usage for last 7 days
         daily_usage = []

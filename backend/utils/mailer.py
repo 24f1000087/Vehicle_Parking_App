@@ -30,14 +30,24 @@ def send_email(to, subject, body, html=None):
         print(f"Email error: {e}")
         return False
 
-def send_daily_reminder_email(user_email, username):
+def send_daily_reminder_email(user_email, username, new_lots=None, days_since=None):
     """Send daily reminder email to inactive users"""
     subject = "Daily Reminder - Vehicle Parking App"
+    freshness = (
+        f"You haven't visited in {days_since} day(s). " if days_since is not None else ""
+    )
+    new_lot_html = ""
+    new_lot_text = ""
+    if new_lots:
+        lot_list = ", ".join(new_lots)
+        new_lot_text = f"\nHot off the press: new lots have just been added ({lot_list}).\n"
+        new_lot_html = f"<p>Hot off the press: new lots have just been added (<strong>{lot_list}</strong>).</p>"
+
     body = f"""
 Hello {username},
 
-This is a daily reminder from the Vehicle Parking App.
-You haven't made any reservations recently. Book a spot now!
+{freshness}This is a reminder from the Vehicle Parking App.
+{new_lot_text}Book a spot now!
 
 Best regards,
 Vehicle Parking App Team
@@ -47,8 +57,9 @@ Vehicle Parking App Team
         <body>
             <h2>Daily Reminder - Vehicle Parking App</h2>
             <p>Hello {username},</p>
-            <p>This is a daily reminder from the Vehicle Parking App.</p>
-            <p>You haven't made any reservations recently. <strong>Book a spot now!</strong></p>
+            <p>{freshness or "This is a quick reminder from the Vehicle Parking App."}</p>
+            {new_lot_html}
+            <p><strong>Book a spot now!</strong></p>
             <p>Best regards,<br>Vehicle Parking App Team</p>
         </body>
     </html>
@@ -64,8 +75,10 @@ Hello {username},
 Here is your monthly parking usage report:
 
 Total Reservations: {report_data.get('total_reservations', 0)}
-Active Reservations: {report_data.get('active_reservations', 0)}
-Total Spent: ${report_data.get('total_spent', 0):.2f}
+Completed Reservations: {report_data.get('completed_reservations', 0)}
+Total Hours Parked: {report_data.get('total_hours', 0)}
+Total Spent: ₹{report_data.get('total_spent', 0):.2f}
+Most Used Lot: {report_data.get('most_used_lot', 'N/A')}
 
 Best regards,
 Vehicle Parking App Team
@@ -78,8 +91,10 @@ Vehicle Parking App Team
             <p>Here is your monthly parking usage report:</p>
             <ul>
                 <li><strong>Total Reservations:</strong> {report_data.get('total_reservations', 0)}</li>
-                <li><strong>Active Reservations:</strong> {report_data.get('active_reservations', 0)}</li>
-                <li><strong>Total Spent:</strong> ${report_data.get('total_spent', 0):.2f}</li>
+                <li><strong>Completed Reservations:</strong> {report_data.get('completed_reservations', 0)}</li>
+                <li><strong>Total Hours Parked:</strong> {report_data.get('total_hours', 0)}</li>
+                <li><strong>Total Spent:</strong> ₹{report_data.get('total_spent', 0):.2f}</li>
+                <li><strong>Most Used Lot:</strong> {report_data.get('most_used_lot', 'N/A')}</li>
             </ul>
             <p>Best regards,<br>Vehicle Parking App Team</p>
         </body>
