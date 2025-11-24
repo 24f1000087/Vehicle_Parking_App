@@ -249,6 +249,13 @@ Any console errors
 What you see when opening http://localhost:5000/api/health
 What the test page shows at http://localhost:8080/test.html
 
+TO TEST REMAINDERS
+from app import app
+>>> from utils.tasks import send_daily_reminders, send_monthly_reports
+>>> with app.app_context():
+...     print(send_daily_reminders.run())
+...     print(send_monthly_reports.run())
+
 ## 🔐 Default Credentials
 
 - **Admin:**
